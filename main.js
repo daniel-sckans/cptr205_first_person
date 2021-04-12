@@ -1,4 +1,5 @@
 import * as THREE from './pkg/three.module.js'; 
+import { GLTFLoader } from './pkg/GLTFLoader.js'; 
 
 window.addEventListener('DOMContentLoaded', DOMContentLoaded => {
 
@@ -27,6 +28,22 @@ window.addEventListener('DOMContentLoaded', DOMContentLoaded => {
     light.castShadow = true; 
     scene.add(light); 
     
+    // CUSTOM MODEL
+    const gltf_loader = new GLTFLoader(); 
+    gltf_loader.load('../assets/chair.glb', gltf => {
+        while(gltf.scene.children.length) {
+            scene.add(gltf.scene.children[0]); 
+        }
+        console.log('SCENE', scene); 
+        scene.traverse(node => {
+            if(node instanceof THREE.Mesh) {
+                node.castShadow = true; 
+            }
+        }); 
+    }, undefined, error => {
+        console.log('CHAIR LOADING ERROR'); 
+    })
+    
     // CUBE
     const cube_geometry = new THREE.BoxGeometry(); 
     const cube_material = new THREE.MeshStandardMaterial({
@@ -35,6 +52,7 @@ window.addEventListener('DOMContentLoaded', DOMContentLoaded => {
         metalness: 0, 
     }); 
     const cube = new THREE.Mesh(cube_geometry, cube_material); 
+    cube.position.x = 3; 
     cube.castShadow = true; 
     cube.receiveShadow = true; 
     cube.name = 'hittable'; 
@@ -49,7 +67,7 @@ window.addEventListener('DOMContentLoaded', DOMContentLoaded => {
     }); 
     const ground = new THREE.Mesh(ground_geometry, ground_material); 
     ground.rotation.x = -0.5 * Math.PI; 
-    ground.position.y = -1; 
+    ground.position.y = -0.5; 
     ground.receiveShadow = true; 
     scene.add(ground); 
 
@@ -59,7 +77,6 @@ window.addEventListener('DOMContentLoaded', DOMContentLoaded => {
         if(input.hasOwnProperty(keydown.key)) {
             input[keydown.key] = true; 
         }
-        console.log(input); 
     }); 
     window.addEventListener('keyup', keyup => {
         if(input.hasOwnProperty(keyup.key)) {
@@ -69,6 +86,7 @@ window.addEventListener('DOMContentLoaded', DOMContentLoaded => {
 
     // RAYCASTING
     const player_raycast = new THREE.Raycaster(); 
+    const collision_check = new THREE.Raycaster(); 
     
     // ANIMATION
     const animation = timestamp => {
@@ -77,19 +95,43 @@ window.addEventListener('DOMContentLoaded', DOMContentLoaded => {
         const speed = 0.1; 
         camera.rotation.y += speed / Math.PI * (input.ArrowLeft - input.ArrowRight); 
         const velocity = new THREE.Vector3(speed * (input.a - input.d), 0, speed * (input.s - input.w)); 
-        camera.position.x += velocity.x * -Math.cos(camera.rotation.y) + velocity.z * Math.sin(camera.rotation.y); 
-        camera.position.z += velocity.x * Math.sin(camera.rotation.y) + velocity.z * Math.cos(camera.rotation.y); 
+        let dx = velocity.x * -Math.cos(camera.rotation.y) + velocity.z * Math.sin(camera.rotation.y); 
+        let dz = velocity.x * Math.sin(camera.rotation.y) + velocity.z * Math.cos(camera.rotation.y); 
 
+        // PROJECTILE
         cube.material.color.set(0x00FFFF); 
         if(input.f) {
             player_raycast.setFromCamera(new THREE.Vector2(0, 0), camera); 
-            const intersects = player_raycast.intersectObjects(scene.children); 
+            const intersects = player_raycast.intersectObjects(scene.children, true); 
             intersects?.forEach(hit_object => {
                 if(hit_object.object.name === 'hittable') {
                     hit_object.object.material.color.set(0xFF0000); 
                 }
             }); 
         }
+
+        // COLLISION CHECK
+        [[1, 0], [Math.SQRT2 / 2, Math.SQRT2 / 2]].forEach(coord => {
+            for(let k = 0; k < 2; k++) {
+                const direction = new THREE.Vector3(coord[k], 0, coord[1 - k]); 
+                for(let i = 0; i < 2; i++) {
+                    direction.x *= -1; 
+                    for(let j = 0; j < 2; j++) {
+                        direction.z *= -1; 
+                        collision_check.set(new THREE.Vector3(camera.position.x + dx, camera.position.y, camera.position.z + dz), direction); 
+                        const collisions = collision_check.intersectObjects(scene.children, true); 
+                        if(collisions[0]?.distance < 0.1) {
+                            dx = 0; 
+                            dz = 0; 
+                        }
+                    }
+                }
+            }
+        }); 
+
+        // APPLY MOVEMENT
+        camera.position.x += dx; 
+        camera.position.z += dz; 
 
         // RENDER
         window.requestAnimationFrame(animation); 
